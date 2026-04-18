@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-Quest — Персональный курс</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◈</text></svg>">
+  <meta name="description" content="AI-Quest: персонализированный интерактивный курс нового мышления с AI. Для любого возраста.">
+  
+  <!-- React 18 + Babel Standalone -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #080810; }
+    #root { min-height: 100vh; }
+    /* Loading fallback */
+    #loading-fallback {
+      position: fixed; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #080810; color: #6868a0;
+      font-family: sans-serif; font-size: 14px;
+      flex-direction: column; gap: 16px;
+    }
+    .spin {
+      width: 40px; height: 40px;
+      border: 3px solid #252538; border-top-color: #6c4ef2;
+      border-radius: 50%; animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- API Key Gate -->
+  <div id="api-key-gate" style="display:none;position:fixed;inset:0;background:#080810;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;">
+    <div style="background:#10101a;border:1px solid #252538;border-radius:20px;padding:32px;max-width:440px;width:100%;text-align:center;">
+      <div style="font-size:32px;margin-bottom:16px;">◈</div>
+      <h2 style="font-family:sans-serif;font-size:20px;font-weight:800;color:#eaeaf8;margin-bottom:8px;">AI-Quest</h2>
+      <p style="color:#6868a0;font-size:13px;margin-bottom:8px;line-height:1.6;">Для работы нужен Anthropic API Key.</p>
+      <p style="color:#4a4a7a;font-size:12px;margin-bottom:20px;line-height:1.7;">
+        1. Зайди на <a href="https://console.anthropic.com" target="_blank" style="color:#8b72f5;">console.anthropic.com</a><br>
+        2. Sign Up → подтверди email<br>
+        3. API Keys → Create Key → скопируй<br>
+        4. Вставь ключ ниже (начинается с <code style="color:#a78bfa;font-family:monospace;">sk-ant-</code>)
+      </p>
+      <input id="api-key-input" type="password" placeholder="sk-ant-api03-..." 
+        style="width:100%;background:#181828;border:1px solid #252538;border-radius:10px;padding:12px 14px;color:#eaeaf8;font-size:14px;outline:none;margin-bottom:12px;font-family:monospace;"
+        onkeydown="if(event.key==='Enter') saveKey()" />
+      <button onclick="saveKey()" 
+        style="width:100%;padding:13px;background:linear-gradient(135deg,#6c4ef2,#8b72f5);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;cursor:pointer;">
+        Войти →
+      </button>
+      <p style="color:#3a3a5a;font-size:11px;margin-top:16px;">Ключ хранится только в вашем браузере (localStorage)</p>
+    </div>
+  </div>
+
+  <script>
+    // API Key management
+    window.ANTHROPIC_API_KEY = localStorage.getItem('aiq_api_key') || '';
+    
+    function saveKey() {
+      const key = document.getElementById('api-key-input').value.trim();
+      if (!key || !key.startsWith('sk-ant')) {
+        document.getElementById('api-key-input').style.borderColor = '#f06060';
+        return;
+      }
+      window.ANTHROPIC_API_KEY = key;
+      localStorage.setItem('aiq_api_key', key);
+      document.getElementById('api-key-gate').style.display = 'none';
+    }
+    
+    // Show gate only if no key saved
+    if (!window.ANTHROPIC_API_KEY) {
+      document.getElementById('api-key-gate').style.display = 'flex';
+      document.getElementById('loading-fallback').style.display = 'none';
+    }
+  </script>
+
+  <div id="loading-fallback">
+    <div class="spin"></div>
+    <span>Загружаем приложение...</span>
+  </div>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+
+// ─── TRANSLATIONS ─────────────────────────────────────────────────────────────
+const T = {
+  ru: {
+    appBadge: "◈ AI-Quest — Персональный курс",
+    appTitle: "Твой курс.\nТвои правила.",
+    appSub: "Расскажи немного о себе — и мы создадим обучение, которое говорит твоим языком, использует твои интересы и даёт результат с первых минут.",
+    f_name: "Имя", f_namePh: "Как тебя зовут?",
+    f_age: "Возраст", f_agePh: "лет",
+    f_gender: "Пол",
+    genders: ["девочка / девушка", "мальчик / парень", "не важно"],
+    f_interests: "Интересы — выбери до 5",
+    f_interestsErr: "выбери хотя бы один",
+    f_favorites: "Любимые сериалы, игры, артисты — что угодно",
+    f_favoritesPh: "Например: Атака Титанов, Minecraft, BTS, Гарри Поттер — чем больше деталей, тем точнее курс",
+    f_techLevel: "Уровень с технологиями",
+    techLevels: [
+      ["новичок", "Новичок — только телефон и соцсети"],
+      ["средний", "Средний — немного разбираюсь в компьютере"],
+      ["продвинутый", "Продвинутый — что-то делал с кодом или ботами"],
+    ],
+    f_lang: "Язык курса",
+    f_submit: "Создать мой курс →",
+    loading_title: "Создаём курс для",
+    loading_sub: "Это займёт несколько секунд",
+    loading_steps: ["Анализирую профиль...", "Подбираю тон и стиль...", "Создаю персонализированные миссии...", "Вплетаю твои интересы...", "Финальная сборка курса..."],
+    tab_course: "Курс",
+    tab_parent: "Для родителей",
+    tab_cards: "Карточки сил",
+    level_label: "Уровень",
+    missions_done: "из",
+    missions_label: "миссий",
+    xp_earned: "XP заработано",
+    mission_why: "Зачем это",
+    mission_task: "Задание",
+    mission_result: "Что должно получиться",
+    mission_hint: "Подсказка",
+    mission_answer_label: "Опиши что получилось / вставь результат",
+    mission_answer_ph: "Напиши здесь — что сделал(а), что получилось, какой был результат...",
+    mission_submit: "Сдать миссию →",
+    mission_evaluating: "Оцениваю...",
+    mission_collapse: "Свернуть",
+    mission_done_badge: "✓ Миссия выполнена",
+    mission_locked: "Заблокировано",
+    mission_completed: "Выполнено",
+    rank_up: "Новый ранг!",
+    card_unlocked: "Карточка силы открыта!",
+    final_title: "Курс пройден!",
+    final_sub: "Ты прошёл(а) все миссии и открыл(а) новые способности",
+    final_total_xp: "Итого XP",
+    final_rank: "Финальный ранг",
+    final_cards: "Карточек сил",
+    final_restart: "Начать заново",
+    parent_title: "Панель родителя",
+    parent_sub: "Прогресс и активность",
+    parent_progress: "Прогресс",
+    parent_completed: "Выполнено миссий",
+    parent_xp: "Заработано XP",
+    parent_rank: "Текущий ранг",
+    parent_cards: "Открытых карточек",
+    parent_last: "Последняя активность",
+    parent_log: "История выполненных миссий",
+    parent_none: "Ещё ни одной миссии не выполнено",
+    cards_title: "Карточки сил",
+    cards_sub: "Каждая миссия открывает новую способность",
+    cards_locked: "Выполни миссии, чтобы открыть карточки",
+    cards_of: "из",
+    cards_earned: "открыто",
+    saved_badge: "Прогресс сохранён",
+    interests: ["Аниме / манга", "Игры", "Музыка", "Рисование", "Программирование", "TikTok / видео", "Книги / фэнтези", "Спорт", "Мода", "Наука", "Кино / сериалы", "Фото / дизайн", "Животные", "Путешествия", "Кулинария", "Бизнес / стартапы", "Психология", "Математика", "Астрономия", "Танцы"],
+    ranks: ["Новичок", "Искра", "Маг слов", "Соавтор", "Архитектор", "Творец"],
+    error: "Что-то пошло не так. Попробуй ещё раз.",
+    resume_banner: "Найден сохранённый прогресс",
+    resume_continue: "Продолжить",
+    resume_new: "Начать заново",
+  },
+  en: {
+    appBadge: "◈ AI-Quest — Personal Course",
+    appTitle: "Your course.\nYour rules.",
+    appSub: "Tell us a bit about yourself — and we'll create a learning experience that speaks your language, uses your interests, and delivers results from the very first minutes.",
+    f_name: "Name", f_namePh: "What's your name?",
+    f_age: "Age", f_agePh: "years",
+    f_gender: "Gender",
+    genders: ["girl / young woman", "boy / young man", "prefer not to say"],
+    f_interests: "Interests — pick up to 5",
+    f_interestsErr: "pick at least one",
+    f_favorites: "Favourite shows, games, artists — anything",
+    f_favoritesPh: "e.g. Attack on Titan, Minecraft, Taylor Swift, Harry Potter — more details = better course",
+    f_techLevel: "Tech level",
+    techLevels: [
+      ["beginner", "Beginner — just phone and social media"],
+      ["intermediate", "Intermediate — comfortable with computers"],
+      ["advanced", "Advanced — done something with code or bots"],
+    ],
+    f_lang: "Course language",
+    f_submit: "Create my course →",
+    loading_title: "Building course for",
+    loading_sub: "This will take a few seconds",
+    loading_steps: ["Analysing profile...", "Picking tone & style...", "Creating personalised missions...", "Weaving in your interests...", "Final assembly..."],
+    tab_course: "Course",
+    tab_parent: "For parents",
+    tab_cards: "Power cards",
+    level_label: "Level",
+    missions_done: "of",
+    missions_label: "missions",
+    xp_earned: "XP earned",
+    mission_why: "Why this matters",
+    mission_task: "Mission",
+    mission_result: "What you'll get",
+    mission_hint: "Hint",
+    mission_answer_label: "Describe what you did / paste the result",
+    mission_answer_ph: "Write here — what you did, what you got, how it went...",
+    mission_submit: "Submit mission →",
+    mission_evaluating: "Evaluating...",
+    mission_collapse: "Collapse",
+    mission_done_badge: "✓ Mission complete",
+    mission_locked: "Locked",
+    mission_completed: "Completed",
+    rank_up: "New rank!",
+    card_unlocked: "Power card unlocked!",
+    final_title: "Course complete!",
+    final_sub: "You finished all missions and unlocked new abilities",
+    final_total_xp: "Total XP",
+    final_rank: "Final rank",
+    final_cards: "Power cards",
+    final_restart: "Start over",
+    parent_title: "Parent dashboard",
+    parent_sub: "Progress & activity",
+    parent_progress: "Progress",
+    parent_completed: "Missions completed",
+    parent_xp: "XP earned",
+    parent_rank: "Current rank",
+    parent_cards: "Cards unlocked",
+    parent_last: "Last activity",
+    parent_log: "Completed mission history",
+    parent_none: "No missions completed yet",
+    cards_title: "Power cards",
+    cards_sub: "Each mission unlocks a new ability",
+    cards_locked: "Complete missions to unlock cards",
+    cards_of: "of",
+    cards_earned: "unlocked",
+    saved_badge: "Progress saved",
+    interests: ["Anime / manga", "Gaming", "Music", "Drawing", "Coding", "TikTok / video", "Books / fantasy", "Sports", "Fashion", "Science", "Film / TV", "Photo / design", "Animals", "Travel", "Cooking", "Business / startups", "Psychology", "Maths", "Astronomy", "Dance"],
+    ranks: ["Newcomer", "Spark", "Word Mage", "Co-Creator", "Architect", "Creator"],
+    error: "Something went wrong. Please try again.",
+    resume_banner: "Saved progress found",
+    resume_continue: "Continue",
+    resume_new: "Start over",
+  }
+};
+
+// ─── POWER CARDS DATA ─────────────────────────────────────────────────────────
+const POWER_CARDS_RU = [
+  { id: "c1",  icon: "◎", name: "Искатель", desc: "Умеешь задавать вопросы, на которые раньше не мог найти ответ" },
+  { id: "c2",  icon: "◉", name: "Детектив алгоритмов", desc: "Понимаешь, как работают рекомендации в соцсетях" },
+  { id: "c3",  icon: "◈", name: "Антиманипулятор", desc: "Видишь кликбейт и рекламные трюки насквозь" },
+  { id: "c4",  icon: "◆", name: "Переводчик стилей", desc: "Умеешь говорить одно на разных языках" },
+  { id: "c5",  icon: "▲", name: "Создатель миров", desc: "Умеешь строить персонажей с настоящим бэклором" },
+  { id: "c6",  icon: "△", name: "Архитектор вселенных", desc: "Твои миры живут по своим правилам" },
+  { id: "c7",  icon: "⬡", name: "Редактор", desc: "Видишь текст иначе — не читаешь, а анализируешь" },
+  { id: "c8",  icon: "⊕", name: "Питчер идей", desc: "Умеешь продать любую идею за 60 секунд" },
+  { id: "c9",  icon: "✦", name: "Дуэлист", desc: "Можешь аргументированно спорить с AI — и побеждать" },
+  { id: "c10", icon: "✧", name: "Стратег", desc: "Разбиваешь любые решения на факторы" },
+  { id: "c11", icon: "⬢", name: "Путешественник во времени", desc: "Умеешь брать интервью у исторических персонажей" },
+  { id: "c12", icon: "◐", name: "Первый код", desc: "Сделал(а) что-то, что работает в браузере" },
+  { id: "c13", icon: "◑", name: "Создатель ботов", desc: "У тебя есть живой телеграм-бот" },
+  { id: "c14", icon: "□", name: "Продуктовик", desc: "Понимаешь разницу между поделкой и продуктом" },
+  { id: "c15", icon: "■", name: "Творец", desc: "Прошёл(а) полный путь от идеи до цифрового результата" },
+];
+
+const POWER_CARDS_EN = [
+  { id: "c1",  icon: "◎", name: "Seeker", desc: "You can ask questions you could never find answers to before" },
+  { id: "c2",  icon: "◉", name: "Algorithm Detective", desc: "You understand how social media recommendations work" },
+  { id: "c3",  icon: "◈", name: "Manipulation Shield", desc: "You see through clickbait and ad tricks instantly" },
+  { id: "c4",  icon: "◆", name: "Style Switcher", desc: "You can say the same thing in a dozen different ways" },
+  { id: "c5",  icon: "▲", name: "World Builder", desc: "You create characters with real backstories" },
+  { id: "c6",  icon: "△", name: "Universe Architect", desc: "Your worlds run by their own rules" },
+  { id: "c7",  icon: "⬡", name: "Editor", desc: "You see text differently — you analyse, not just read" },
+  { id: "c8",  icon: "⊕", name: "Idea Pitcher", desc: "You can sell any idea in 60 seconds" },
+  { id: "c9",  icon: "✦", name: "Duelist", desc: "You can argue with AI — and win" },
+  { id: "c10", icon: "✧", name: "Strategist", desc: "You break any decision into clear factors" },
+  { id: "c11", icon: "⬢", name: "Time Traveller", desc: "You can interview historical figures" },
+  { id: "c12", icon: "◐", name: "First Code", desc: "You made something that runs in a browser" },
+  { id: "c13", icon: "◑", name: "Bot Builder", desc: "You have a live Telegram bot" },
+  { id: "c14", icon: "□", name: "Product Thinker", desc: "You know the difference between a toy and a product" },
+  { id: "c15", icon: "■", name: "Creator", desc: "You went all the way from idea to digital result" },
+];
+
+// ─── AGE GROUP ────────────────────────────────────────────────────────────────
+function getAgeGroup(age) {
+  const a = parseInt(age);
+  if (a <= 10) return "child";      // 7–10
+  if (a <= 13) return "tween";     // 11–13
+  if (a <= 17) return "teen";      // 14–17
+  return "adult";                   // 18+
+}
+
+// ─── RANKS ────────────────────────────────────────────────────────────────────
+const XP_THRESHOLDS = [0, 150, 350, 600, 900, 1300];
+function getRankIndex(xp) {
+  let r = 0;
+  for (let i = XP_THRESHOLDS.length - 1; i >= 0; i--) {
+    if (xp >= XP_THRESHOLDS[i]) { r = i; break; }
+  }
+  return r;
+}
+
+// ─── STORAGE KEY ─────────────────────────────────────────────────────────────
+function storageKey(name) {
+  return `aiq-${name.toLowerCase().replace(/\s+/g, "-")}`;
+}
+
+// ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
+function buildSystemPrompt(profile, lang) {
+  const group = getAgeGroup(profile.age);
+  const toneMap = {
+    child: lang === "ru"
+      ? "очень простой язык, короткие предложения, игровые метафоры, задания на 5 минут максимум"
+      : "very simple language, short sentences, game-like metaphors, max 5-minute tasks",
+    tween: lang === "ru"
+      ? "дружелюбный и живой тон, без занудства, задания 5-10 минут, отсылки к интересам"
+      : "friendly and lively tone, no boring parts, 5-10 min tasks, references to interests",
+    teen: lang === "ru"
+      ? "равный разговор, прямо и уважительно, без сюсюканья, задания 10-15 минут, реальные взрослые результаты"
+      : "peer-level conversation, direct and respectful, no dumbing down, 10-15 min tasks, real results",
+    adult: lang === "ru"
+      ? "профессиональный партнёрский тон, конкретика и польза, задания 10-20 минут, применимо прямо сейчас"
+      : "professional peer tone, concrete value, 10-20 min tasks, immediately applicable",
+  };
+  const isRu = lang === "ru";
+  return `You are a creator of personalised AI-learning quests.
+
+USER PROFILE:
+- Name: ${profile.name}
+- Age: ${profile.age} (age group: ${group})
+- Gender: ${profile.gender}
+- Interests: ${profile.interests.join(", ")}
+- Favourites: ${profile.favorites || "not specified"}
+- Tech level: ${profile.techLevel}
+
+TONE: ${toneMap[group]}
+
+PERSONALISATION RULES:
+1. ALL examples, tasks and metaphors must use the user's interests. If they love anime — every example is anime-adjacent.
+2. Task difficulty matches age group. Children: magic & play. Tweens: cool discoveries. Teens: real skills. Adults: career/life value.
+3. Each mission takes 5-15 min max. Every result must be tangible: a text, file, idea, created thing.
+4. Missions unlock sequentially — each one builds on the previous.
+5. Level 1: meet Claude, fast wins. Level 2: prompt skills, co-creation. Level 3: digital building, real projects.
+
+RESPOND ONLY with valid JSON, no markdown, no explanation:
+{
+  "title": "personalised course title (use name or interest reference)",
+  "subtitle": "short subtitle",
+  "levels": [
+    {
+      "id": 1,
+      "name": "level name",
+      "tagline": "one-line level essence",
+      "missions": [
+        {
+          "id": "1-1",
+          "name": "mission name",
+          "icon_index": 0,
+          "xp": 50,
+          "hook": "one sentence why this is cool",
+          "context": "2-3 sentences: what skill/tool is this, how is it used in real life. Simple, no jargon.",
+          "task": "step-by-step: exactly what to do",
+          "result": "concrete output description",
+          "hint": "tip or lifehack",
+          "card_id": "c1"
+        }
+      ]
+    }
+  ]
+}
+
+Make 3 levels, 4 missions each (12 total). XP per mission: 40-120, total ~900.
+Assign card_ids sequentially: level1→c1-c4, level2→c5-c8, level3→c9-c12. Last mission gets c15.
+${isRu ? "Write ALL content in Russian." : "Write ALL content in English."}`;
+}
+
+// ─── API CALLS ────────────────────────────────────────────────────────────────
+async function generateCourse(profile, lang) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": window.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system: buildSystemPrompt(profile, lang),
+      messages: [{ role: "user", content: "Create the course JSON now." }],
+    }),
+  });
+  const data = await res.json();
+  const text = data.content?.find(b => b.type === "text")?.text || "";
+  return JSON.parse(text.replace(/```json|```/g, "").trim());
+}
+
+async function generateFeedback(profile, mission, answer, lang) {
+  const group = getAgeGroup(profile.age);
+  const toneHint = {
+    child: lang === "ru" ? "энергичный, с восторгом, очень просто" : "energetic, enthusiastic, very simple",
+    tween: lang === "ru" ? "дружелюбный, живой, с отсылкой к интересам" : "friendly, lively, reference their interests",
+    teen: lang === "ru" ? "уважительный и прямой, без нравоучений" : "respectful and direct, no lecturing",
+    adult: lang === "ru" ? "деловой партнёрский, конкретный" : "professional peer, concrete",
+  }[group];
+
+  const system = lang === "ru"
+    ? `Ты наставник. Пользователь: ${profile.name}, ${profile.age} лет, интересы: ${profile.interests.join(", ")}. Тон: ${toneHint}. Дай живой фидбек 2-4 предложения. Отметь что хорошо, если есть что улучшить — скажи конкретно. Не начинай с "Отлично!" или "Молодец!". Отвечай на русском.`
+    : `You're a mentor. User: ${profile.name}, age ${profile.age}, interests: ${profile.interests.join(", ")}. Tone: ${toneHint}. Give live feedback 2-4 sentences. Note what worked, if something can improve say it concretely. Don't start with "Great!" or "Well done!". Reply in English.`;
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": window.ANTHROPIC_API_KEY || "",
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system,
+      messages: [{ role: "user", content: `Mission: ${mission.name}\nTask: ${mission.task}\nUser answer: ${answer}` }],
+    }),
+  });
+  const data = await res.json();
+  return data.content?.find(b => b.type === "text")?.text || "";
+}
+
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const C = {
+  bg: "#080810", surface: "#10101a", surfaceHigh: "#181828",
+  border: "#252538", accent: "#6c4ef2", accentLight: "#8b72f5",
+  accentGlow: "rgba(108,78,242,0.28)", gold: "#f0b429", goldGlow: "rgba(240,180,41,0.3)",
+  text: "#eaeaf8", textMuted: "#6868a0", success: "#3ddc84", danger: "#f06060",
+  card1: "#4f46e5", card2: "#0891b2", card3: "#059669",
+};
+
+const STYLES = `
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--accent:${C.accent};--gold:${C.gold};--surface:${C.surface};--border:${C.border}}
+html{scroll-behavior:smooth}
+body{background:${C.bg};color:${C.text};font-family:'DM Sans',sans-serif;font-size:15px;line-height:1.65;min-height:100vh}
+.app{min-height:100vh;position:relative;overflow-x:hidden}
+
+/* BG */
+.bg-mesh{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.mesh-blob{position:absolute;border-radius:50%;filter:blur(100px);opacity:.12;animation:blobDrift 18s ease-in-out infinite}
+.mb1{width:700px;height:700px;background:radial-gradient(#6c4ef2,transparent 70%);top:-200px;left:-200px;animation-delay:0s}
+.mb2{width:500px;height:500px;background:radial-gradient(#f0b429,transparent 70%);bottom:-100px;right:-100px;animation-delay:-6s}
+.mb3{width:400px;height:400px;background:radial-gradient(#3ddc84,transparent 70%);top:40%;left:55%;animation-delay:-12s}
+@keyframes blobDrift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(40px,-40px) scale(1.08)}66%{transform:translate(-30px,30px) scale(.94)}}
+
+/* Layout */
+.content{position:relative;z-index:1;max-width:700px;margin:0 auto;padding:36px 20px 100px}
+@media(max-width:480px){.content{padding:24px 16px 80px}}
+
+/* Language toggle */
+.lang-toggle{position:fixed;top:20px;right:20px;z-index:50;display:flex;gap:4px;background:${C.surface};border:1px solid ${C.border};border-radius:100px;padding:4px}
+.lang-btn{padding:4px 12px;border-radius:100px;border:none;background:transparent;color:${C.textMuted};font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;letter-spacing:.05em}
+.lang-btn.active{background:${C.accent};color:#fff}
+
+/* ── INTRO ── */
+.intro-hero{text-align:center;margin-bottom:44px;animation:fadeUp .6s ease}
+.intro-badge{display:inline-flex;align-items:center;gap:8px;background:rgba(108,78,242,.12);border:1px solid rgba(108,78,242,.3);padding:5px 16px;border-radius:100px;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#a78bfa;margin-bottom:24px}
+.intro-title{font-family:'Bricolage Grotesque',sans-serif;font-size:clamp(34px,7vw,56px);font-weight:800;line-height:1.05;margin-bottom:16px;white-space:pre-line;background:linear-gradient(140deg,#eaeaf8 0%,#8b72f5 55%,${C.gold} 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.intro-sub{color:${C.textMuted};font-size:15px;max-width:460px;margin:0 auto}
+
+/* FORM */
+.form-card{background:${C.surface};border:1px solid ${C.border};border-radius:20px;padding:32px;animation:fadeUp .5s ease .1s both}
+.form-section{margin-bottom:24px}
+.form-label{display:block;font-family:'Bricolage Grotesque',sans-serif;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${C.textMuted};margin-bottom:9px}
+.form-label .num{color:${C.accent};margin-right:6px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:480px){.form-row{grid-template-columns:1fr}}
+input,select,textarea{width:100%;background:${C.surfaceHigh};border:1px solid ${C.border};border-radius:10px;padding:11px 14px;color:${C.text};font-family:'DM Sans',sans-serif;font-size:14px;outline:none;transition:border-color .2s,box-shadow .2s;-webkit-appearance:none}
+input:focus,select:focus,textarea:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentGlow}}
+input.err,select.err{border-color:${C.danger}}
+textarea{resize:vertical;min-height:86px}
+select option{background:${C.surfaceHigh}}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{padding:6px 13px;border-radius:100px;border:1px solid ${C.border};background:${C.surfaceHigh};color:${C.textMuted};font-size:13px;cursor:pointer;transition:all .15s;user-select:none;font-family:'DM Sans',sans-serif}
+.chip:hover{border-color:${C.accent};color:${C.text}}
+.chip.sel{background:rgba(108,78,242,.18);border-color:${C.accent};color:#c4b5fd}
+.btn-gen{width:100%;padding:15px;background:linear-gradient(135deg,#6c4ef2,#8b72f5);border:none;border-radius:12px;color:#fff;font-family:'Bricolage Grotesque',sans-serif;font-size:15px;font-weight:700;letter-spacing:.04em;cursor:pointer;transition:transform .15s,box-shadow .15s;box-shadow:0 4px 24px rgba(108,78,242,.4);margin-top:4px}
+.btn-gen:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(108,78,242,.5)}
+.btn-gen:disabled{opacity:.5;cursor:not-allowed;transform:none}
+
+/* RESUME BANNER */
+.resume-banner{background:rgba(108,78,242,.1);border:1px solid rgba(108,78,242,.3);border-radius:14px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:12px;animation:fadeUp .4s ease}
+.resume-btns{display:flex;gap:8px;flex-shrink:0}
+.btn-sm{padding:7px 14px;border-radius:8px;border:1px solid transparent;font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;letter-spacing:.03em}
+.btn-sm-pri{background:${C.accent};color:#fff}
+.btn-sm-ghost{background:transparent;border-color:${C.border};color:${C.textMuted}}
+.btn-sm-ghost:hover{border-color:${C.accent};color:${C.text}}
+
+/* LOADING */
+.loading-wrap{text-align:center;padding:80px 24px;animation:fadeUp .4s ease}
+.loader-ring{width:60px;height:60px;border:3px solid ${C.border};border-top-color:${C.accent};border-radius:50%;animation:spin .75s linear infinite;margin:0 auto 24px}
+.load-title{font-family:'Bricolage Grotesque',sans-serif;font-size:22px;font-weight:800;margin-bottom:8px}
+.load-steps{list-style:none;margin-top:24px;display:inline-flex;flex-direction:column;gap:10px;text-align:left}
+.ls{display:flex;align-items:center;gap:10px;font-size:13px;color:${C.textMuted};transition:color .3s}
+.ls.act{color:${C.text}}.ls.done{color:${C.success}}
+.ls-dot{width:7px;height:7px;border-radius:50%;background:${C.border};flex-shrink:0;transition:background .3s}
+.ls.act .ls-dot{background:${C.accent};animation:pulse 1s ease-in-out infinite}
+.ls.done .ls-dot{background:${C.success}}
+
+/* TABS */
+.tabs{display:flex;background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:4px;margin-bottom:28px;gap:4px}
+.tab-btn{flex:1;padding:9px 6px;border:none;border-radius:9px;background:transparent;color:${C.textMuted};font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:700;letter-spacing:.04em;cursor:pointer;transition:all .15s;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tab-btn.active{background:${C.surfaceHigh};color:${C.text};box-shadow:0 1px 4px rgba(0,0,0,.3)}
+
+/* PLAYER CARD */
+.player-card{display:flex;align-items:center;gap:16px;background:${C.surface};border:1px solid ${C.border};border-radius:16px;padding:16px 20px;margin-bottom:20px}
+.avatar{width:46px;height:46px;background:linear-gradient(135deg,${C.accent},${C.gold});border-radius:12px;display:flex;align-items:center;justify-content:center;font-family:'Bricolage Grotesque',sans-serif;font-size:20px;font-weight:800;flex-shrink:0}
+.player-info{flex:1;min-width:0}
+.player-name{font-family:'Bricolage Grotesque',sans-serif;font-size:15px;font-weight:800;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-meta{font-size:12px;color:${C.textMuted}}
+.xp-block{text-align:right;flex-shrink:0}
+.xp-val{font-family:'Bricolage Grotesque',sans-serif;font-size:24px;font-weight:800;color:${C.gold};line-height:1}
+.xp-lbl{font-size:10px;color:${C.textMuted};text-transform:uppercase;letter-spacing:.08em;margin-top:2px}
+
+/* RANK BADGE */
+.rank-row{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.rank-badge{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(135deg,rgba(108,78,242,.2),rgba(139,114,245,.1));border:1px solid rgba(108,78,242,.35);padding:5px 14px;border-radius:100px;font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:700;color:#c4b5fd;letter-spacing:.04em}
+.rank-icon{font-size:14px}
+.xp-to-next{font-size:11px;color:${C.textMuted}}
+
+/* PROGRESS BAR */
+.pbar-wrap{background:${C.surfaceHigh};border-radius:100px;height:5px;overflow:hidden;margin-bottom:28px}
+.pbar-fill{height:100%;background:linear-gradient(90deg,${C.accent},${C.accentLight});border-radius:100px;transition:width .6s cubic-bezier(.4,0,.2,1);box-shadow:0 0 8px rgba(108,78,242,.6)}
+
+/* LEVEL SECTION */
+.lvl-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.lvl-lbl{background:rgba(108,78,242,.12);border:1px solid rgba(108,78,242,.25);padding:3px 10px;border-radius:100px;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a78bfa}
+.lvl-name{font-family:'Bricolage Grotesque',sans-serif;font-size:18px;font-weight:800}
+.lvl-tag{font-size:12px;color:${C.textMuted};margin-bottom:14px}
+.mission-list{display:flex;flex-direction:column;gap:10px;margin-bottom:32px}
+
+/* MISSION CARD */
+.mc{background:${C.surface};border:1px solid ${C.border};border-radius:14px;overflow:hidden;transition:border-color .2s,transform .15s,box-shadow .15s;cursor:pointer;animation:fadeUp .35s ease both}
+.mc:hover{border-color:rgba(108,78,242,.4);transform:translateY(-1px)}
+.mc.open{border-color:${C.accent};box-shadow:0 0 0 1px rgba(108,78,242,.15),0 6px 28px rgba(108,78,242,.12)}
+.mc.done{border-color:rgba(61,220,132,.35)}
+.mc.locked{opacity:.45;cursor:not-allowed}
+.mc.locked:hover{transform:none;border-color:${C.border}}
+.mc-head{display:flex;align-items:center;gap:12px;padding:14px 18px}
+.mc-icon{width:38px;height:38px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;background:${C.surfaceHigh};transition:background .2s}
+.mc.open .mc-icon{background:rgba(108,78,242,.18)}
+.mc.done .mc-icon{background:rgba(61,220,132,.12)}
+.mc-info{flex:1;min-width:0}
+.mc-name{font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
+.mc-hook{font-size:12px;color:${C.textMuted}}
+.mc-xp{font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:700;color:${C.gold};flex-shrink:0}
+.mc.done .mc-xp{color:${C.success}}
+
+/* MISSION BODY */
+.mc-body{padding:0 18px 18px;border-top:1px solid ${C.border};animation:expandDown .25s ease}
+@keyframes expandDown{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+.ms{margin-top:14px}
+.ms-lbl{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${C.accent};margin-bottom:5px}
+.ms p{font-size:13.5px;line-height:1.65;color:#c8c8e8}
+.ans-area{margin-top:14px}
+.ans-ta{width:100%;background:${C.surfaceHigh};border:1px solid ${C.border};border-radius:9px;padding:11px 13px;color:${C.text};font-family:'DM Sans',sans-serif;font-size:13.5px;outline:none;resize:vertical;min-height:78px;transition:border-color .2s,box-shadow .2s}
+.ans-ta:focus{border-color:${C.accent};box-shadow:0 0 0 3px ${C.accentGlow}}
+.btn-row{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn{padding:9px 18px;border-radius:9px;border:1px solid transparent;font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;letter-spacing:.04em}
+.btn-pri{background:linear-gradient(135deg,${C.accent},${C.accentLight});color:#fff;box-shadow:0 2px 12px rgba(108,78,242,.35)}
+.btn-pri:hover{box-shadow:0 4px 20px rgba(108,78,242,.5);transform:translateY(-1px)}
+.btn-pri:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-ghost{background:transparent;border-color:${C.border};color:${C.textMuted}}
+.btn-ghost:hover{border-color:${C.accent};color:${C.text}}
+.feedback-box{margin-top:12px;padding:13px 15px;border-radius:9px;font-size:13.5px;line-height:1.65;background:rgba(61,220,132,.07);border:1px solid rgba(61,220,132,.2);color:#a0f0c8;animation:fadeUp .3s ease}
+.done-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(61,220,132,.1);border:1px solid rgba(61,220,132,.25);color:${C.success};padding:4px 10px;border-radius:100px;font-size:11px;font-weight:600;margin-top:12px}
+.card-unlock-note{margin-top:10px;font-size:12px;color:#a78bfa;display:flex;align-items:center;gap:6px}
+
+/* ── TOAST ── */
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:${C.surface};border-radius:12px;padding:10px 20px;display:flex;align-items:center;gap:8px;font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:700;box-shadow:0 4px 24px rgba(0,0,0,.4);z-index:200;animation:toastIn .3s ease,toastOut .3s ease 1.8s forwards;white-space:nowrap}
+.toast.xp{border:1px solid rgba(240,180,41,.4);color:${C.gold};box-shadow:0 4px 24px ${C.goldGlow}}
+.toast.rank{border:1px solid rgba(108,78,242,.5);color:#c4b5fd}
+.toast.card{border:1px solid rgba(61,220,132,.4);color:${C.success}}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes toastOut{to{opacity:0;transform:translateX(-50%) translateY(-8px)}}
+
+/* SAVE INDICATOR */
+.save-badge{position:fixed;bottom:20px;right:20px;background:rgba(61,220,132,.1);border:1px solid rgba(61,220,132,.25);color:${C.success};padding:6px 14px;border-radius:100px;font-size:11px;font-weight:600;animation:fadeUp .3s ease,fadeOut .3s ease 1.5s forwards;z-index:100}
+@keyframes fadeOut{to{opacity:0}}
+
+/* ── PARENT PANEL ── */
+.panel-card{background:${C.surface};border:1px solid ${C.border};border-radius:16px;padding:20px 24px;margin-bottom:16px}
+.panel-title{font-family:'Bricolage Grotesque',sans-serif;font-size:14px;font-weight:800;margin-bottom:14px;text-transform:uppercase;letter-spacing:.06em;color:${C.textMuted}}
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.stat-item{background:${C.surfaceHigh};border-radius:10px;padding:14px}
+.stat-val{font-family:'Bricolage Grotesque',sans-serif;font-size:24px;font-weight:800;margin-bottom:2px}
+.stat-val.gold{color:${C.gold}}
+.stat-val.accent{color:#a78bfa}
+.stat-val.green{color:${C.success}}
+.stat-lbl{font-size:11px;color:${C.textMuted}}
+.pbar2-wrap{background:${C.surfaceHigh};border-radius:100px;height:8px;overflow:hidden;margin:10px 0 4px}
+.pbar2-fill{height:100%;background:linear-gradient(90deg,${C.accent},${C.accentLight});border-radius:100px;transition:width .6s}
+.log-item{padding:10px 0;border-bottom:1px solid ${C.border};font-size:13px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.log-item:last-child{border-bottom:none}
+.log-name{color:${C.text}}
+.log-xp{color:${C.gold};font-family:'Bricolage Grotesque',sans-serif;font-weight:700;font-size:12px;flex-shrink:0}
+.log-date{color:${C.textMuted};font-size:11px;flex-shrink:0}
+
+/* ── POWER CARDS ── */
+.cards-intro{font-size:13px;color:${C.textMuted};margin-bottom:20px}
+.cards-count{font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:20px}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+.pcard{border-radius:12px;padding:16px 14px;border:1px solid ${C.border};background:${C.surface};transition:all .2s;position:relative;overflow:hidden}
+.pcard.unlocked{border-color:rgba(108,78,242,.4);background:linear-gradient(135deg,rgba(108,78,242,.1),rgba(139,114,245,.05))}
+.pcard.locked-card{opacity:.3;filter:grayscale(1)}
+.pcard-icon{font-size:24px;margin-bottom:8px;display:block}
+.pcard-name{font-family:'Bricolage Grotesque',sans-serif;font-size:12px;font-weight:800;margin-bottom:4px;color:${C.text}}
+.pcard-desc{font-size:11px;color:${C.textMuted};line-height:1.5}
+.pcard.unlocked .pcard-name{color:#c4b5fd}
+
+/* ── FINAL SCREEN ── */
+.final-wrap{text-align:center;padding:20px 0}
+.final-icon{font-size:60px;margin-bottom:16px;animation:popIn .5s cubic-bezier(.34,1.56,.64,1)}
+@keyframes popIn{from{transform:scale(0)}to{transform:scale(1)}}
+.final-title{font-family:'Bricolage Grotesque',sans-serif;font-size:32px;font-weight:800;margin-bottom:8px;background:linear-gradient(135deg,#eaeaf8,#8b72f5);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.final-sub{color:${C.textMuted};font-size:14px;margin-bottom:32px}
+.final-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:32px}
+.fs-item{background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:16px 10px;text-align:center}
+.fs-val{font-family:'Bricolage Grotesque',sans-serif;font-size:28px;font-weight:800;margin-bottom:4px}
+.fs-lbl{font-size:11px;color:${C.textMuted};text-transform:uppercase;letter-spacing:.06em}
+.btn-restart{background:${C.surface};border:1px solid ${C.border};border-radius:12px;padding:12px 28px;color:${C.text};font-family:'Bricolage Grotesque',sans-serif;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;letter-spacing:.04em;margin-top:8px}
+.btn-restart:hover{border-color:${C.accent};color:#c4b5fd}
+
+/* UTILS */
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.divider{height:1px;background:${C.border};margin:20px 0}
+`;
+
+// ─── ICON MAP ─────────────────────────────────────────────────────────────────
+const ICONS = ["◈","◉","◊","◆","◇","▲","△","○","●","◐","◑","□","■","⬡","⬢","✦","✧","⊕","⊗","⊘"];
+
+// ─── CHIP SELECT ──────────────────────────────────────────────────────────────
+function ChipSelect({ options, value, onChange, max = 5 }) {
+  return (
+    <div className="chips">
+      {options.map(opt => (
+        <button key={opt} type="button"
+          className={`chip ${value.includes(opt) ? "sel" : ""}`}
+          onClick={() => {
+            if (value.includes(opt)) onChange(value.filter(v => v !== opt));
+            else if (value.length < max) onChange([...value, opt]);
+          }}>
+          {opt}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ─── TOAST QUEUE ─────────────────────────────────────────────────────────────
+function ToastDisplay({ toasts }) {
+  return (
+    <>
+      {toasts.map(t => (
+        <div key={t.id} className={`toast ${t.type}`}>{t.msg}</div>
+      ))}
+    </>
+  );
+}
+
+// ─── INTRO SCREEN ─────────────────────────────────────────────────────────────
+function IntroScreen({ lang, t, onStart, savedData }) {
+  const [form, setForm] = useState({ name:"", age:"", gender: t.genders[2], interests:[], favorites:"", techLevel: t.techLevels[0][0] });
+  const [errors, setErrors] = useState({});
+
+  const validate = () => {
+    const e = {};
+    if (!form.name.trim()) e.name = true;
+    if (!form.age || form.age < 7 || form.age > 99) e.age = true;
+    if (form.interests.length === 0) e.interests = true;
+    setErrors(e);
+    return !Object.keys(e).length;
+  };
+
+  return (
+    <div className="content">
+      <div className="intro-hero">
+        <div className="intro-badge">{t.appBadge}</div>
+        <h1 className="intro-title">{t.appTitle}</h1>
+        <p className="intro-sub">{t.appSub}</p>
+      </div>
+
+      {savedData && (
+        <div className="resume-banner">
+          <span style={{fontSize:13}}>{t.resume_banner}: <strong>{savedData.profile.name}</strong></span>
+          <div className="resume-btns">
+            <button className="btn-sm btn-sm-pri" onClick={() => onStart(savedData.profile, true, savedData)}>{t.resume_continue}</button>
+            <button className="btn-sm btn-sm-ghost" onClick={() => onStart(null, false, null)}>{t.resume_new}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="form-card">
+        <div className="form-section">
+          <div className="form-row">
+            <div>
+              <label className="form-label"><span className="num">01</span>{t.f_name}</label>
+              <input type="text" placeholder={t.f_namePh} value={form.name}
+                className={errors.name ? "err" : ""}
+                onChange={e => setForm({...form, name: e.target.value})} />
+            </div>
+            <div>
+              <label className="form-label"><span className="num">02</span>{t.f_age}</label>
+              <input type="number" placeholder={t.f_agePh} value={form.age} min={7} max={99}
+                className={errors.age ? "err" : ""}
+                onChange={e => setForm({...form, age: e.target.value})} />
+            </div>
+          </div>
+        </div>
+
+        <div className="form-section">
+          <label className="form-label"><span className="num">03</span>{t.f_gender}</label>
+          <div className="chips">
+            {t.genders.map(g => (
+              <button key={g} type="button" className={`chip ${form.gender === g ? "sel" : ""}`}
+                onClick={() => setForm({...form, gender: g})}>{g}</button>
+            ))}
+          </div>
+        </div>
+
+        <div className="form-section">
+          <label className="form-label">
+            <span className="num">04</span>{t.f_interests}
+            {errors.interests && <span style={{color: C.danger, marginLeft:8, textTransform:"none", letterSpacing:0, fontWeight:400}}> — {t.f_interestsErr}</span>}
+          </label>
+          <ChipSelect options={t.interests} value={form.interests} onChange={v => setForm({...form, interests:v})} max={5} />
+        </div>
+
+        <div className="form-section">
+          <label className="form-label"><span className="num">05</span>{t.f_favorites}</label>
+          <textarea placeholder={t.f_favoritesPh} value={form.favorites}
+            onChange={e => setForm({...form, favorites: e.target.value})} />
+        </div>
+
+        <div className="form-section">
+          <label className="form-label"><span className="num">06</span>{t.f_techLevel}</label>
+          <select value={form.techLevel} onChange={e => setForm({...form, techLevel: e.target.value})}>
+            {t.techLevels.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+
+        <button className="btn-gen" onClick={() => { if (validate()) onStart(form, false, null); }}>
+          {t.f_submit}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── LOADING SCREEN ───────────────────────────────────────────────────────────
+function LoadingScreen({ profile, t }) {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const timers = t.loading_steps.map((_, i) =>
+      setTimeout(() => setStep(s => Math.max(s, i + 1)), i * 900 + 500)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
+  return (
+    <div className="content">
+      <div className="loading-wrap">
+        <div className="loader-ring" />
+        <div className="load-title">{t.loading_title} {profile.name}</div>
+        <p style={{color: C.textMuted, fontSize:13}}>{t.loading_sub}</p>
+        <ul className="load-steps">
+          {t.loading_steps.map((s, i) => (
+            <li key={i} className={`ls ${i < step ? "done" : i === step ? "act" : ""}`}>
+              <span className="ls-dot" />{s}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ─── POWER CARD ───────────────────────────────────────────────────────────────
+function PowerCard({ card, unlocked }) {
+  return (
+    <div className={`pcard ${unlocked ? "unlocked" : "locked-card"}`}>
+      <span className="pcard-icon">{card.icon}</span>
+      <div className="pcard-name">{card.name}</div>
+      <div className="pcard-desc">{card.desc}</div>
+    </div>
+  );
+}
+
+// ─── MISSION CARD ─────────────────────────────────────────────────────────────
+function MissionCard({ mission, index, status, profile, lang, t, powerCards, onComplete }) {
+  const [open, setOpen] = useState(false);
+  const [answer, setAnswer] = useState("");
+  const [feedback, setFeedback] = useState("");
+  const [loadingFb, setLoadingFb] = useState(false);
+  const card = powerCards.find(c => c.id === mission.card_id);
+
+  const toggle = () => { if (status !== "locked") setOpen(o => !o); };
+
+  const handleSubmit = async () => {
+    if (!answer.trim()) return;
+    setLoadingFb(true);
+    try {
+      const fb = await generateFeedback(profile, mission, answer, lang);
+      setFeedback(fb);
+    } catch {
+      setFeedback(lang === "ru" ? "Миссия засчитана. Отличная работа." : "Mission complete. Great work.");
+    }
+    onComplete(mission.id, mission.xp, mission.card_id);
+    setLoadingFb(false);
+  };
+
+  const icon = ICONS[mission.icon_index % ICONS.length];
+
+  return (
+    <div className={`mc ${open && status !== "done" ? "open" : ""} ${status === "done" ? "done" : ""} ${status === "locked" ? "locked" : ""}`}
+      style={{animationDelay: `${index * 0.04}s`}}>
+      <div className="mc-head" onClick={toggle}>
+        <div className="mc-icon">{icon}</div>
+        <div className="mc-info">
+          <div className="mc-name">{mission.name}</div>
+          <div className="mc-hook">{status === "done" ? t.mission_completed : status === "locked" ? t.mission_locked : mission.hook}</div>
+        </div>
+        <div className="mc-xp">{status === "done" ? "✓" : "+"}{mission.xp} XP</div>
+      </div>
+
+      {open && status !== "locked" && (
+        <div className="mc-body">
+          <div className="ms"><div className="ms-lbl">{t.mission_why}</div><p>{mission.context}</p></div>
+          <div className="ms"><div className="ms-lbl">{t.mission_task}</div><p>{mission.task}</p></div>
+          <div className="ms"><div className="ms-lbl">{t.mission_result}</div><p>{mission.result}</p></div>
+          {mission.hint && <div className="ms"><div className="ms-lbl">{t.mission_hint}</div><p style={{color: C.textMuted}}>{mission.hint}</p></div>}
+
+          {status !== "done" ? (
+            <div className="ans-area">
+              <div className="ms-lbl" style={{marginBottom:7}}>{t.mission_answer_label}</div>
+              <textarea className="ans-ta" placeholder={t.mission_answer_ph}
+                value={answer} onChange={e => setAnswer(e.target.value)} />
+              <div className="btn-row">
+                <button className="btn btn-pri" onClick={handleSubmit}
+                  disabled={!answer.trim() || loadingFb}>
+                  {loadingFb ? t.mission_evaluating : t.mission_submit}
+                </button>
+                <button className="btn btn-ghost" onClick={() => setOpen(false)}>{t.mission_collapse}</button>
+              </div>
+            </div>
+          ) : (
+            <div className="done-badge">✓ {t.mission_done_badge}</div>
+          )}
+
+          {feedback && <div className="feedback-box">{feedback}</div>}
+
+          {(status === "done" || feedback) && card && (
+            <div className="card-unlock-note">✦ {t.card_unlocked} «{card.name}»</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PARENT PANEL ─────────────────────────────────────────────────────────────
+function ParentPanel({ profile, course, completed, totalXP, t, lang }) {
+  const allMissions = course.levels.flatMap(l => l.missions);
+  const doneCount = Object.keys(completed).length;
+  const progress = allMissions.length > 0 ? (doneCount / allMissions.length) * 100 : 0;
+  const rankIdx = getRankIndex(totalXP);
+  const ranks = T[lang].ranks;
+  const unlockedCards = Object.values(completed).filter(v => v.card_id).map(v => v.card_id).length;
+
+  const logEntries = Object.entries(completed)
+    .sort((a, b) => b[1].ts - a[1].ts)
+    .slice(0, 10);
+
+  return (
+    <div>
+      <div className="panel-card">
+        <div className="panel-title">{t.parent_sub}</div>
+        <div className="pbar2-wrap"><div className="pbar2-fill" style={{width: `${progress}%`}} /></div>
+        <div style={{fontSize:12, color: C.textMuted, marginBottom:16}}>{Math.round(progress)}%</div>
+        <div className="stat-grid">
+          <div className="stat-item"><div className="stat-val green">{doneCount}</div><div className="stat-lbl">{t.parent_completed}</div></div>
+          <div className="stat-item"><div className="stat-val gold">{totalXP}</div><div className="stat-lbl">{t.parent_xp}</div></div>
+          <div className="stat-item"><div className="stat-val accent">{ranks[rankIdx]}</div><div className="stat-lbl">{t.parent_rank}</div></div>
+          <div className="stat-item"><div className="stat-val" style={{color:"#c4b5fd"}}>{unlockedCards}</div><div className="stat-lbl">{t.parent_cards}</div></div>
+        </div>
+      </div>
+
+      <div className="panel-card">
+        <div className="panel-title">{t.parent_log}</div>
+        {logEntries.length === 0 ? (
+          <p style={{color: C.textMuted, fontSize:13}}>{t.parent_none}</p>
+        ) : (
+          logEntries.map(([id, data]) => (
+            <div className="log-item" key={id}>
+              <span className="log-name">{data.name}</span>
+              <span style={{display:"flex", gap:10}}>
+                <span className="log-xp">+{data.xp} XP</span>
+                <span className="log-date">{new Date(data.ts).toLocaleDateString(lang === "ru" ? "ru-RU" : "en-GB")}</span>
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── CARDS PANEL ──────────────────────────────────────────────────────────────
+function CardsPanel({ unlockedCardIds, t, lang }) {
+  const cards = lang === "ru" ? POWER_CARDS_RU : POWER_CARDS_EN;
+  const unlockedCount = unlockedCardIds.length;
+  return (
+    <div>
+      <p className="cards-intro">{t.cards_sub}</p>
+      <div className="cards-count">{unlockedCount} {t.cards_of} {cards.length} {t.cards_earned}</div>
+      <div className="cards-grid">
+        {cards.map(card => (
+          <PowerCard key={card.id} card={card} unlocked={unlockedCardIds.includes(card.id)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── FINAL SCREEN ─────────────────────────────────────────────────────────────
+function FinalScreen({ profile, totalXP, unlockedCardIds, lang, t, onRestart }) {
+  const rankIdx = getRankIndex(totalXP);
+  const ranks = T[lang].ranks;
+  return (
+    <div className="content">
+      <div className="final-wrap">
+        <div className="final-icon">◈</div>
+        <div className="final-title">{t.final_title}</div>
+        <p className="final-sub">{t.final_sub}</p>
+        <div className="final-stats">
+          <div className="fs-item"><div className="fs-val" style={{color: C.gold}}>{totalXP}</div><div className="fs-lbl">{t.final_total_xp}</div></div>
+          <div className="fs-item"><div className="fs-val" style={{color:"#c4b5fd", fontSize:18}}>{ranks[rankIdx]}</div><div className="fs-lbl">{t.final_rank}</div></div>
+          <div className="fs-item"><div className="fs-val" style={{color: C.success}}>{unlockedCardIds.length}</div><div className="fs-lbl">{t.final_cards}</div></div>
+        </div>
+        <button className="btn-restart" onClick={onRestart}>{t.final_restart}</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── COURSE SCREEN ────────────────────────────────────────────────────────────
+function CourseScreen({ profile, course, lang, t, initialCompleted, initialXP, onRestart }) {
+  const [completed, setCompleted] = useState(initialCompleted || {});
+  const [totalXP, setTotalXP] = useState(initialXP || 0);
+  const [tab, setTab] = useState("course");
+  const [toasts, setToasts] = useState([]);
+  const [showSaved, setShowSaved] = useState(false);
+  const toastId = useRef(0);
+  const prevRankRef = useRef(getRankIndex(initialXP || 0));
+
+  const powerCards = lang === "ru" ? POWER_CARDS_RU : POWER_CARDS_EN;
+  const allMissions = course.levels.flatMap(l => l.missions);
+  const totalPossibleXP = allMissions.reduce((s, m) => s + m.xp, 0);
+  const unlockedCardIds = Object.values(completed).filter(v => v.card_id).map(v => v.card_id);
+  const rankIdx = getRankIndex(totalXP);
+  const ranks = T[lang].ranks;
+  const isFinished = allMissions.every(m => completed[m.id]);
+  const showParent = parseInt(profile.age) < 16;
+
+  const addToast = useCallback((msg, type) => {
+    const id = ++toastId.current;
+    setToasts(ts => [...ts.slice(-1), {id, msg, type}]);
+    setTimeout(() => setToasts(ts => ts.filter(t => t.id !== id)), 2200);
+  }, []);
+
+  // Save to storage whenever completed/XP changes
+  useEffect(() => {
+    const save = async () => {
+      try {
+        const key = storageKey(profile.name);
+        await window.storage.set(key, JSON.stringify({
+          profile, course, lang,
+          completed, totalXP,
+          savedAt: Date.now(),
+        }));
+        setShowSaved(true);
+        setTimeout(() => setShowSaved(false), 2000);
+      } catch {}
+    };
+    if (Object.keys(completed).length > 0) save();
+  }, [completed, totalXP]);
+
+  const getMissionStatus = (mission) => {
+    if (completed[mission.id]) return "done";
+    const idx = allMissions.findIndex(m => m.id === mission.id);
+    if (idx === 0) return "available";
+    const prev = allMissions[idx - 1];
+    return prev && completed[prev.id] ? "available" : "locked";
+  };
+
+  const handleComplete = useCallback((id, xp, card_id) => {
+    if (completed[id]) return;
+    const missionName = allMissions.find(m => m.id === id)?.name || "";
+    setCompleted(c => ({ ...c, [id]: { xp, card_id, name: missionName, ts: Date.now() } }));
+    setTotalXP(x => {
+      const newXP = x + xp;
+      addToast(`+${xp} XP`, "xp");
+      const newRank = getRankIndex(newXP);
+      if (newRank > prevRankRef.current) {
+        prevRankRef.current = newRank;
+        setTimeout(() => addToast(`${T[lang].rank_up} ${ranks[newRank]}`, "rank"), 600);
+      }
+      if (card_id) setTimeout(() => addToast(T[lang].card_unlocked, "card"), 1200);
+      return newXP;
+    });
+  }, [completed, allMissions, lang, ranks, addToast]);
+
+  const xpToNext = rankIdx < XP_THRESHOLDS.length - 1 ? XP_THRESHOLDS[rankIdx + 1] - totalXP : 0;
+  const progress = totalPossibleXP > 0 ? Math.min((totalXP / totalPossibleXP) * 100, 100) : 0;
+
+  if (isFinished && tab === "course") {
+    return (
+      <>
+        <ToastDisplay toasts={toasts} />
+        {showSaved && <div className="save-badge">{t.saved_badge}</div>}
+        <FinalScreen profile={profile} totalXP={totalXP} unlockedCardIds={unlockedCardIds} lang={lang} t={t} onRestart={onRestart} />
+      </>
+    );
+  }
+
+  const tabs = [
+    {key:"course", label: t.tab_course},
+    ...(showParent ? [{key:"parent", label: t.tab_parent}] : []),
+    {key:"cards", label: t.tab_cards},
+  ];
+
+  return (
+    <div className="content">
+      <ToastDisplay toasts={toasts} />
+      {showSaved && <div className="save-badge">{t.saved_badge}</div>}
+
+      <h1 style={{fontFamily:"'Bricolage Grotesque',sans-serif", fontSize:"clamp(20px,5vw,28px)", fontWeight:800, lineHeight:1.15, marginBottom:6}}>{course.title}</h1>
+      <p style={{color: C.textMuted, fontSize:13, marginBottom:22}}>{course.subtitle}</p>
+
+      <div className="player-card">
+        <div className="avatar">{profile.name[0]?.toUpperCase()}</div>
+        <div className="player-info">
+          <div className="player-name">{profile.name}</div>
+          <div className="player-meta">{Object.keys(completed).length} {t.missions_done} {allMissions.length} {t.missions_label}</div>
+        </div>
+        <div className="xp-block">
+          <div className="xp-val">{totalXP}</div>
+          <div className="xp-lbl">{t.xp_earned}</div>
+        </div>
+      </div>
+
+      <div className="rank-row">
+        <div className="rank-badge"><span className="rank-icon">◈</span>{ranks[rankIdx]}</div>
+        {xpToNext > 0 && <span className="xp-to-next">{xpToNext} XP →</span>}
+      </div>
+
+      <div className="pbar-wrap">
+        <div className="pbar-fill" style={{width:`${progress}%`}} />
+      </div>
+
+      <div className="tabs">
+        {tabs.map(tb => (
+          <button key={tb.key} className={`tab-btn ${tab === tb.key ? "active" : ""}`} onClick={() => setTab(tb.key)}>
+            {tb.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "course" && course.levels.map((level) => (
+        <div key={level.id}>
+          <div className="lvl-head">
+            <span className="lvl-lbl">{t.level_label} {level.id}</span>
+            <span className="lvl-name">{level.name}</span>
+          </div>
+          <div className="lvl-tag">{level.tagline}</div>
+          <div className="mission-list">
+            {level.missions.map((m, mi) => (
+              <MissionCard key={m.id} mission={m} index={mi} status={getMissionStatus(m)}
+                profile={profile} lang={lang} t={t} powerCards={powerCards}
+                onComplete={handleComplete} />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {tab === "parent" && showParent && (
+        <ParentPanel profile={profile} course={course} completed={completed}
+          totalXP={totalXP} t={t} lang={lang} />
+      )}
+
+      {tab === "cards" && (
+        <CardsPanel unlockedCardIds={unlockedCardIds} t={t} lang={lang} />
+      )}
+    </div>
+  );
+}
+
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
+function App() {
+  const [lang, setLang] = useState("ru");
+  const [screen, setScreen] = useState("intro");
+  const [profile, setProfile] = useState(null);
+  const [course, setCourse] = useState(null);
+  const [error, setError] = useState(null);
+  const [savedData, setSavedData] = useState(null);
+  const [resumeData, setResumeData] = useState(null);
+  const t = T[lang];
+
+  // Check for saved progress on mount
+  useEffect(() => {
+    const checkSaved = async () => {
+      try {
+        const keys = await window.storage.list("aiq-");
+        if (keys?.keys?.length > 0) {
+          const latest = await window.storage.get(keys.keys[keys.keys.length - 1]);
+          if (latest?.value) {
+            const parsed = JSON.parse(latest.value);
+            setSavedData(parsed);
+          }
+        }
+      } catch {}
+    };
+    checkSaved();
+  }, []);
+
+  const handleStart = async (formData, isResume, resumeSaved) => {
+    if (!formData) { setSavedData(null); return; }
+    if (isResume && resumeSaved) {
+      setProfile(resumeSaved.profile);
+      setCourse(resumeSaved.course);
+      setResumeData(resumeSaved);
+      setScreen("course");
+      return;
+    }
+    setProfile(formData);
+    setScreen("loading");
+    setError(null);
+    try {
+      const generated = await generateCourse(formData, lang);
+      setCourse(generated);
+      setResumeData(null);
+      setScreen("course");
+    } catch (e) {
+      setError(t.error);
+      setScreen("intro");
+    }
+  };
+
+  const handleRestart = async () => {
+    if (profile) {
+      try { await window.storage.delete(storageKey(profile.name)); } catch {}
+    }
+    setProfile(null); setCourse(null); setResumeData(null);
+    setSavedData(null); setScreen("intro");
+  };
+
+  return (
+    <>
+      <style>{STYLES}</style>
+      <div className="app">
+        <div className="bg-mesh">
+          <div className="mesh-blob mb1" /><div className="mesh-blob mb2" /><div className="mesh-blob mb3" />
+        </div>
+
+        <div className="lang-toggle">
+          <button className={`lang-btn ${lang === "ru" ? "active" : ""}`} onClick={() => setLang("ru")}>RU</button>
+          <button className={`lang-btn ${lang === "en" ? "active" : ""}`} onClick={() => setLang("en")}>EN</button>
+        </div>
+
+        {error && (
+          <div style={{position:"fixed",top:20,left:"50%",transform:"translateX(-50%)",background:`rgba(240,96,96,.12)`,border:`1px solid rgba(240,96,96,.4)`,color:"#fca5a5",padding:"9px 18px",borderRadius:10,fontSize:13,zIndex:200}}>
+            {error}
+          </div>
+        )}
+
+        {screen === "intro" && (
+          <IntroScreen lang={lang} t={t} onStart={handleStart} savedData={savedData} />
+        )}
+        {screen === "loading" && <LoadingScreen profile={profile} t={t} />}
+        {screen === "course" && course && (
+          <CourseScreen
+            profile={profile} course={course} lang={lang} t={t}
+            initialCompleted={resumeData?.completed || {}}
+            initialXP={resumeData?.totalXP || 0}
+            onRestart={handleRestart}
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
+
+// Storage polyfill for standalone HTML
+if (!window.storage) {
+  const _store = {};
+  window.storage = {
+    get: async (key) => {
+      const val = localStorage.getItem('aiq_' + key);
+      if (!val) throw new Error('Key not found');
+      return { key, value: val };
+    },
+    set: async (key, value) => {
+      localStorage.setItem('aiq_' + key, typeof value === 'string' ? value : JSON.stringify(value));
+      return { key, value };
+    },
+    delete: async (key) => {
+      localStorage.removeItem('aiq_' + key);
+      return { key, deleted: true };
+    },
+    list: async (prefix = '') => {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('aiq_' + prefix)) keys.push(k.replace('aiq_', ''));
+      }
+      return { keys };
+    }
+  };
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+
+
+  // Hide loading fallback once app mounts
+  document.getElementById('loading-fallback').style.display = 'none';
+  </script>
+</body>
+</html>
